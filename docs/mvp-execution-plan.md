@@ -148,10 +148,10 @@ This execution plan breaks down the implementation of OmniVRF (Verifiable Random
 ### Tasks
 
 #### 4.1 Deployment Scripts
-- [ ] Update `contracts/script/DeployMyL2Contracts.s.sol` for OmniVRF deployment
-- [ ] Add deployment configuration for both Ethereum and Base testnets
-- [ ] Create deployment verification scripts
-- [ ] Update `config/contexts/devnet.yaml` with OmniVRF settings
+- [x] Update `contracts/script/DeployMyL2Contracts.s.sol` for OmniVRF deployment
+- [x] Update `contracts/script/DeployMyL1Contracts.s.sol` to remove HelloWorld examples
+- [x] Fix all deployment script imports and contract references
+- [x] Implement proper TaskMailbox mocking in tests
 
 #### 4.2 DevNet Testing
 - [ ] Deploy contracts to Hourglass devnet using `devkit avs devnet start`

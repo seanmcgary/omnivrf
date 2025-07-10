@@ -8,7 +8,6 @@ import {IAllocationManager} from "@eigenlayer-contracts/src/contracts/interfaces
 import {IKeyRegistrar} from "@eigenlayer-contracts/src/contracts/interfaces/IKeyRegistrar.sol";
 
 import {TaskAVSRegistrar} from "@project/l1-contracts/TaskAVSRegistrar.sol";
-import {HelloWorldL1} from "@project/l1-contracts/HelloWorldL1.sol"; // Import your L1 custom contract
 
 contract DeployMyL1Contracts is Script {
     using stdJson for string;
@@ -34,11 +33,9 @@ contract DeployMyL1Contracts is Script {
         vm.startBroadcast(context.deployerPrivateKey);
         console.log("Deployer address:", vm.addr(context.deployerPrivateKey));
 
-        //TODO: Implement custom L1 contracts deployment
-        // CustomContractL1 customContractL1 = new CustomContractL1();
-        // console.log("CustomContractL1 deployed to:", address(customContractL1));
-        HelloWorldL1 helloWorldL1 = new HelloWorldL1();
-        console.log("HelloWorldL1 deployed to:", address(helloWorldL1));
+        // For OmniVRF MVP, we don't need custom L1 contracts
+        // All VRF functionality is handled on L2 via OmniVRFTaskManager
+        console.log("No custom L1 contracts needed for OmniVRF MVP");
 
         vm.stopBroadcast();
 
@@ -49,11 +46,8 @@ contract DeployMyL1Contracts is Script {
 
         vm.stopBroadcast();
 
-        //TODO: Write to output file
-        Output[] memory outputs = new Output[](1);
-        // outputs[0] = Output({name: "CustomContractL1", contractAddress: address(customContractL1)});
-        // _writeOutputToJson(environment, outputs);
-        outputs[0] = Output({name: "HelloWorldL1", contractAddress: address(helloWorldL1)});
+        // No custom L1 contracts to output for OmniVRF MVP
+        Output[] memory outputs = new Output[](0);
         _writeOutputToJson(environment, outputs);
     }
 
