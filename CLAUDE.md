@@ -27,6 +27,38 @@ This is an EigenLayer AVS (Autonomous Verifiable Service) project named "omnivrf
 - `devkit avs devnet stop` - Stops the devnet
 - `devkit avs call --signature="(uint256,string)" args='(5,"hello")'` - Simulates task execution
 
+### Running the Performer Directly
+The performer now supports a proper CLI interface with flags and environment variables:
+
+```bash
+# Run with default settings
+./bin/performer
+
+# Run with custom port and timeout
+./bin/performer --port 9090 --timeout 60s
+
+# Run with debug logging
+./bin/performer --log-level debug
+
+# Run with environment variables
+export OMNIVRF_PORT=9090
+export OMNIVRF_TIMEOUT=60s
+export VRF_PRIVATE_KEY=0x...
+./bin/performer
+
+# View all available options
+./bin/performer --help
+```
+
+Available flags:
+- `--port` (env: `OMNIVRF_PORT`): RPC server port (default: 8080)
+- `--timeout` (env: `OMNIVRF_TIMEOUT`): VRF computation timeout (default: 30s)
+- `--key-manager-type` (env: `KEY_MANAGER_TYPE`): Key manager type - "env" or "aws" (default: env)
+- `--vrf-private-key` (env: `VRF_PRIVATE_KEY`): VRF private key for env key manager
+- `--aws-secret-name` (env: `AWS_SECRET_NAME`): AWS secret name for aws key manager
+- `--aws-region` (env: `AWS_REGION`): AWS region (default: us-east-1)
+- `--log-level` (env: `OMNIVRF_LOG_LEVEL`): Log level - debug, info, warn, error (default: info)
+
 ### Linting and Type Checking
 Note: No explicit linting commands found in the Makefile. The project likely uses:
 - `go fmt` for Go formatting

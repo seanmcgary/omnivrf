@@ -7,10 +7,13 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {IBN254CertificateVerifier} from
     "@eigenlayer-contracts/src/contracts/interfaces/IBN254CertificateVerifier.sol";
 import {IECDSACertificateVerifier} from "@eigenlayer-contracts/src/contracts/interfaces/IECDSACertificateVerifier.sol";
-import {ITaskMailbox} from "@hourglass-monorepo/src/interfaces/core/ITaskMailbox.sol";
+import {ITaskMailbox, ITaskMailboxTypes} from "@hourglass-monorepo/src/interfaces/core/ITaskMailbox.sol";
+import {IKeyRegistrarTypes} from "@eigenlayer-contracts/src/contracts/interfaces/IKeyRegistrar.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IAVSTaskHook} from "@hourglass-monorepo/src/interfaces/avs/l2/IAVSTaskHook.sol";
 
-import {AVSTaskHook} from "@project/l2-contracts/AVSTaskHook.sol";
 import {OmniVRF} from "@project/l2-contracts/OmniVRF.sol";
+import {OperatorSet} from "@eigenlayer-contracts/src/contracts/libraries/OperatorSetLib.sol";
 
 contract DeployMyL2Contracts is Script {
     using stdJson for string;
@@ -22,7 +25,6 @@ contract DeployMyL2Contracts is Script {
         IBN254CertificateVerifier certificateVerifier;
         IECDSACertificateVerifier ecdsaCertificateVerifier;
         ITaskMailbox taskMailbox;
-        AVSTaskHook taskHook;
     }
 
     struct Output {
@@ -46,7 +48,27 @@ contract DeployMyL2Contracts is Script {
         vm.startBroadcast(context.avsPrivateKey);
         console.log("AVS address:", context.avs);
 
-        //TODO: Implement any additional AVS setup
+        // Set up operator set
+        OperatorSet memory operatorSet = OperatorSet({
+            avs: context.avs,
+            id: 1
+        });
+
+        // Configure task mailbox with OmniVRF as the task hook
+        ITaskMailboxTypes.ExecutorOperatorSetTaskConfig memory taskConfig = ITaskMailboxTypes
+            .ExecutorOperatorSetTaskConfig({
+            curveType: IKeyRegistrarTypes.CurveType.BN254, // Using BN254 curve for VRF
+            taskHook: IAVSTaskHook(address(omniVRF)),
+            feeToken: IERC20(address(0)), // No fee token for MVP
+            feeCollector: address(0), // No fee collector for MVP
+            taskSLA: 3600, // 1 hour SLA for MVP
+            stakeProportionThreshold: 10_000, // 100% threshold
+            taskMetadata: bytes("") // No metadata for MVP
+        });
+        
+        console.log("Registering OmniVRF as task hook...");
+        context.taskMailbox.setExecutorOperatorSetTaskConfig(operatorSet, taskConfig);
+        console.log("OmniVRF registered as task hook for operator set");
 
         vm.stopBroadcast();
 
@@ -68,7 +90,6 @@ contract DeployMyL2Contracts is Script {
         context.certificateVerifier = IBN254CertificateVerifier(stdJson.readAddress(_context, ".context.eigenlayer.l2.bn254_certificate_verifier"));
         context.ecdsaCertificateVerifier = IECDSACertificateVerifier(stdJson.readAddress(_context, ".context.eigenlayer.l2.ecdsa_certificate_verifier"));
         context.taskMailbox = ITaskMailbox(_readHourglassConfigAddress(environment, "taskMailbox"));
-        context.taskHook = AVSTaskHook(_readAVSL2ConfigAddress(environment, "avsTaskHook"));
 
         return context;
     }

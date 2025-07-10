@@ -110,6 +110,7 @@ This execution plan breaks down the implementation of OmniVRF (Verifiable Random
   - `HandleTask()` method for VRF computation
 - [x] Implement task data parsing and validation
 - [x] Add response formatting for Hourglass aggregation
+- [x] Refactor to use urfave/cli for proper CLI interface with flags/env vars
 
 #### 3.2 Task Processing Pipeline
 - [x] Implement task data structure parsing (requestId, seed)
@@ -153,6 +154,7 @@ This execution plan breaks down the implementation of OmniVRF (Verifiable Random
 - [x] Update `contracts/script/DeployMyL1Contracts.s.sol` to remove HelloWorld examples
 - [x] Fix all deployment script imports and contract references
 - [x] Implement proper TaskMailbox mocking in tests
+- [x] Register OmniVRF as AVSTaskHook in TaskMailbox configuration
 
 #### 4.2 DevNet Testing
 - [ ] Deploy contracts to Hourglass devnet using `devkit avs devnet start`
