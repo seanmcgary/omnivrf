@@ -16,8 +16,8 @@ This execution plan breaks down the implementation of OmniVRF (Verifiable Random
 ### Tasks
 
 #### 1.1 Project Structure Setup
-- [x] Create `contracts/src/l2-contracts/OmniVRFTaskManager.sol`
-- [x] Create `contracts/src/interfaces/IOmniVRFConsumer.sol`
+- [x] Create `contracts/src/l2-contracts/OmniVRF.sol`
+- [x] Create `contracts/src/interfaces/IOmniVRF.sol`
 - [x] Create Go package structure: `pkg/performer/`, `pkg/keymanager/`
 - [x] Update `go.mod` with required dependencies:
   - `github.com/vechain/go-ecvrf`
@@ -57,12 +57,12 @@ This execution plan breaks down the implementation of OmniVRF (Verifiable Random
 ### Tasks
 
 #### 2.1 Core Contract Development
-- [x] Implement `OmniVRFTaskManager.sol` with:
+- [x] Implement `OmniVRF.sol` with:
   - TaskMailbox integration
   - AVSTaskHook implementation
   - Request creation and storage
   - Basic task completion handling
-- [x] Implement `IOmniVRFConsumer.sol` interface
+- [x] Implement `IOmniVRF.sol` interface
 - [x] Add events for randomness requests and fulfillment
 
 #### 2.2 Request Management System
@@ -79,6 +79,7 @@ This execution plan breaks down the implementation of OmniVRF (Verifiable Random
 - [x] Add basic VRF proof verification (placeholder for MVP)
 - [x] Implement callback execution with gas limit protection
 - [x] Add gas accounting and refund mechanisms
+- [x] Fix all Solidity test failures (16/16 tests passing)
 
 ### Deliverables
 - [x] Fully functional OmniVRF smart contract

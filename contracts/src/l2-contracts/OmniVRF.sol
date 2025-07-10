@@ -5,14 +5,14 @@ import {OperatorSet} from "@eigenlayer-contracts/src/contracts/libraries/Operato
 import {IAVSTaskHook} from "@hourglass-monorepo/src/interfaces/avs/l2/IAVSTaskHook.sol";
 import {ITaskMailbox, ITaskMailboxTypes} from "@hourglass-monorepo/src/interfaces/core/ITaskMailbox.sol";
 
-import {IOmniVRFConsumer} from "@project/interfaces/IOmniVRFConsumer.sol";
+import {IOmniVRF} from "@project/interfaces/IOmniVRF.sol";
 
 /**
- * @title OmniVRFTaskManager
+ * @title OmniVRF
  * @notice Verifiable Random Function service implemented as an Hourglass AVS
  * @dev Implements AVSTaskHook for lifecycle management and interacts with TaskMailbox
  */
-contract OmniVRFTaskManager is IAVSTaskHook {
+contract OmniVRF is IAVSTaskHook {
     
     // ============ STRUCTS ============
     
@@ -336,7 +336,7 @@ contract OmniVRFTaskManager is IAVSTaskHook {
         callbackGasDeposits[request.requester] -= gasCost;
         
         // Execute callback with gas limit protection
-        try IOmniVRFConsumer(request.callbackContract).fulfillRandomness{
+        try IOmniVRF(request.callbackContract).fulfillRandomness{
             gas: request.callbackGasLimit
         }(taskHash, request.result) {
             // Callback successful

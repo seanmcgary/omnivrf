@@ -10,7 +10,7 @@ import {IECDSACertificateVerifier} from "@eigenlayer-contracts/src/contracts/int
 import {ITaskMailbox} from "@hourglass-monorepo/src/interfaces/core/ITaskMailbox.sol";
 
 import {AVSTaskHook} from "@project/l2-contracts/AVSTaskHook.sol";
-import {OmniVRFTaskManager} from "@project/l2-contracts/OmniVRFTaskManager.sol";
+import {OmniVRF} from "@project/l2-contracts/OmniVRF.sol";
 
 contract DeployMyL2Contracts is Script {
     using stdJson for string;
@@ -37,9 +37,9 @@ contract DeployMyL2Contracts is Script {
         vm.startBroadcast(context.deployerPrivateKey);
         console.log("Deployer address:", vm.addr(context.deployerPrivateKey));
 
-        // Deploy OmniVRF Task Manager
-        OmniVRFTaskManager omniVRFTaskManager = new OmniVRFTaskManager(address(context.taskMailbox));
-        console.log("OmniVRFTaskManager deployed to:", address(omniVRFTaskManager));
+        // Deploy OmniVRF
+        OmniVRF omniVRF = new OmniVRF(address(context.taskMailbox));
+        console.log("OmniVRF deployed to:", address(omniVRF));
 
         vm.stopBroadcast();
 
@@ -52,7 +52,7 @@ contract DeployMyL2Contracts is Script {
 
         // Write OmniVRF contracts to output file
         Output[] memory outputs = new Output[](1);
-        outputs[0] = Output({name: "OmniVRFTaskManager", contractAddress: address(omniVRFTaskManager)});
+        outputs[0] = Output({name: "OmniVRF", contractAddress: address(omniVRF)});
         _writeOutputToJson(environment, outputs);
     }
 

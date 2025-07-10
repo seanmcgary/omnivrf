@@ -90,12 +90,12 @@ Future Expansion:
 ┌─────────────────────────────────────────────────────────────┐
 │                     Smart Contracts                          │
 ├─────────────────────────────────────────────────────────────┤
-│ OmniVRFTaskManager.sol                                      │
+│ OmniVRF.sol                                      │
 │   - Implements TaskMailbox pattern                          │
 │   - Implements AVSTaskHook for callbacks                    │
 │   - Manages randomness requests and callbacks               │
 │                                                             │
-│ IOmniVRFConsumer.sol                                       │
+│ IOmniVRF.sol                                       │
 │   - Interface for contracts receiving callbacks             │
 └─────────────────────────────────────────────────────────────┘
 
@@ -118,7 +118,7 @@ Future Expansion:
 
 ## Smart Contract Design
 
-### Core Contract: OmniVRFTaskManager
+### Core Contract: OmniVRF
 
 ```solidity
 // SPDX-License-Identifier: MIT
@@ -127,11 +127,11 @@ pragma solidity ^0.8.19;
 import {TaskMailbox} from "@eigenlayer/hourglass/TaskMailbox.sol";
 import {AVSTaskHook} from "@eigenlayer/hourglass/AVSTaskHook.sol";
 
-interface IOmniVRFConsumer {
+interface IOmniVRF {
     function fulfillRandomness(uint256 requestId, uint256 randomness) external;
 }
 
-contract OmniVRFTaskManager is TaskMailbox, AVSTaskHook {
+contract OmniVRF is TaskMailbox, AVSTaskHook {
     struct RandomnessRequest {
         address requester;
         address callbackContract;
@@ -243,7 +243,7 @@ contract OmniVRFTaskManager is TaskMailbox, AVSTaskHook {
         callbackGasDeposits[request.requester] -= gasCost;
         
         // Execute callback with gas limit
-        try IOmniVRFConsumer(request.callbackContract).fulfillRandomness{
+        try IOmniVRF(request.callbackContract).fulfillRandomness{
             gas: request.callbackGasLimit
         }(requestId, request.result) {
             // Success

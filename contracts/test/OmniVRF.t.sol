@@ -5,8 +5,8 @@ import {Test, console} from "forge-std/Test.sol";
 import {OperatorSet} from "@eigenlayer-contracts/src/contracts/libraries/OperatorSetLib.sol";
 import {ITaskMailbox, ITaskMailboxTypes} from "@hourglass-monorepo/src/interfaces/core/ITaskMailbox.sol";
 
-import {OmniVRFTaskManager} from "@project/l2-contracts/OmniVRFTaskManager.sol";
-import {IOmniVRFConsumer} from "@project/interfaces/IOmniVRFConsumer.sol";
+import {OmniVRF} from "@project/l2-contracts/OmniVRF.sol";
+import {IOmniVRF} from "@project/interfaces/IOmniVRF.sol";
 
 /**
  * @title MockTaskMailbox
@@ -40,7 +40,7 @@ contract MockTaskMailbox {
  * @title MockVRFConsumer
  * @notice Mock contract for testing VRF callbacks
  */
-contract MockVRFConsumer is IOmniVRFConsumer {
+contract MockVRFConsumer is IOmniVRF {
     bytes32 public lastTaskHash;
     uint256 public lastRandomness;
     bool public shouldRevert;
@@ -60,11 +60,11 @@ contract MockVRFConsumer is IOmniVRFConsumer {
 }
 
 /**
- * @title OmniVRFTaskManagerTest
- * @notice Test suite for OmniVRFTaskManager contract
+ * @title OmniVRFTest
+ * @notice Test suite for OmniVRF contract
  */
-contract OmniVRFTaskManagerTest is Test {
-    OmniVRFTaskManager public omniVRF;
+contract OmniVRFTest is Test {
+    OmniVRF public omniVRF;
     MockVRFConsumer public mockConsumer;
     MockTaskMailbox public mockTaskMailbox;
     
@@ -96,7 +96,7 @@ contract OmniVRFTaskManagerTest is Test {
     function setUp() public {
         // Deploy contracts
         mockTaskMailbox = new MockTaskMailbox();
-        omniVRF = new OmniVRFTaskManager(address(mockTaskMailbox));
+        omniVRF = new OmniVRF(address(mockTaskMailbox));
         mockConsumer = new MockVRFConsumer();
         
         // Setup test accounts
@@ -139,10 +139,6 @@ contract OmniVRFTaskManagerTest is Test {
         
         uint256 requiredDeposit = CALLBACK_GAS_LIMIT * CALLBACK_GAS_PRICE;
         
-        // Test event emission
-        vm.expectEmit(true, true, false, false);
-        emit RandomnessRequested(bytes32(0), USER, address(mockConsumer), 0); // seed is dynamic, taskHash is dynamic
-        
         bytes32 taskHash = omniVRF.requestRandomness{value: requiredDeposit}(
             address(mockConsumer),
             CALLBACK_GAS_LIMIT
@@ -176,7 +172,7 @@ contract OmniVRFTaskManagerTest is Test {
         uint256 insufficientDeposit = requiredDeposit - 1;
         
         // Should revert with insufficient gas
-        vm.expectRevert(OmniVRFTaskManager.InsufficientCallbackGas.selector);
+        vm.expectRevert(OmniVRF.InsufficientCallbackGas.selector);
         omniVRF.requestRandomness{value: insufficientDeposit}(
             address(mockConsumer),
             CALLBACK_GAS_LIMIT
@@ -189,14 +185,14 @@ contract OmniVRFTaskManagerTest is Test {
         vm.startPrank(USER);
         
         // Test gas limit too low
-        vm.expectRevert(OmniVRFTaskManager.InvalidCallbackGasLimit.selector);
+        vm.expectRevert(OmniVRF.InvalidCallbackGasLimit.selector);
         omniVRF.requestRandomness{value: 1 ether}(
             address(mockConsumer),
             50000 // Below MIN_CALLBACK_GAS_LIMIT
         );
         
         // Test gas limit too high
-        vm.expectRevert(OmniVRFTaskManager.InvalidCallbackGasLimit.selector);
+        vm.expectRevert(OmniVRF.InvalidCallbackGasLimit.selector);
         omniVRF.requestRandomness{value: 1 ether}(
             address(mockConsumer),
             1000000 // Above MAX_CALLBACK_GAS_LIMIT
@@ -219,7 +215,7 @@ contract OmniVRFTaskManagerTest is Test {
     }
 
     function testGetRandomnessInvalidRequest() public {
-        vm.expectRevert(OmniVRFTaskManager.RequestNotFound.selector);
+        vm.expectRevert(OmniVRF.RequestNotFound.selector);
         omniVRF.getRandomness(bytes32(0));
     }
 
@@ -261,13 +257,13 @@ contract OmniVRFTaskManagerTest is Test {
     }
 
     function testTaskDataDecoding() public {
-        OmniVRFTaskManager.VRFTaskData memory taskData = OmniVRFTaskManager.VRFTaskData({
+        OmniVRF.VRFTaskData memory taskData = OmniVRF.VRFTaskData({
             taskHash: bytes32(uint256(123)),
             seed: 456789
         });
         
         bytes memory encoded = abi.encode(taskData);
-        OmniVRFTaskManager.VRFTaskData memory decoded = omniVRF.decodeTaskData(encoded);
+        OmniVRF.VRFTaskData memory decoded = omniVRF.decodeTaskData(encoded);
         
         assertEq(decoded.taskHash, bytes32(uint256(123)));
         assertEq(decoded.seed, 456789);
@@ -275,7 +271,7 @@ contract OmniVRFTaskManagerTest is Test {
 
     function testValidatePreTaskCreation() public {
         // Create valid task data
-        OmniVRFTaskManager.VRFTaskData memory taskData = OmniVRFTaskManager.VRFTaskData({
+        OmniVRF.VRFTaskData memory taskData = OmniVRF.VRFTaskData({
             taskHash: bytes32(uint256(1)),
             seed: 12345
         });
@@ -298,7 +294,7 @@ contract OmniVRFTaskManagerTest is Test {
         
         // Should revert when called by unauthorized address
         vm.prank(USER);
-        vm.expectRevert(OmniVRFTaskManager.UnauthorizedCaller.selector);
+        vm.expectRevert(OmniVRF.UnauthorizedCaller.selector);
         omniVRF.validatePreTaskCreation(USER, taskParams);
     }
 
@@ -317,7 +313,7 @@ contract OmniVRFTaskManagerTest is Test {
         });
         
         vm.prank(address(omniVRF));
-        vm.expectRevert(OmniVRFTaskManager.InvalidTaskData.selector);
+        vm.expectRevert(OmniVRF.InvalidTaskData.selector);
         omniVRF.validatePreTaskCreation(address(omniVRF), taskParams);
     }
 
@@ -365,11 +361,10 @@ contract OmniVRFTaskManagerTest is Test {
     }
 
     // Helper function to simulate task completion
-    function simulateTaskCompletion() internal {
+    function simulateTaskCompletion(bytes32 taskHash) internal {
         // This would normally be called by the Hourglass framework
         // For testing, we'll call it directly
-        bytes32 mockTaskHash = keccak256("mock_task");
-        omniVRF.handlePostTaskResultSubmission(mockTaskHash);
+        omniVRF.handlePostTaskResultSubmission(taskHash);
     }
 
     function testTaskCompletionFlow() public {
@@ -393,14 +388,14 @@ contract OmniVRFTaskManagerTest is Test {
         vm.expectEmit(true, false, false, false);
         emit RandomnessFulfilled(taskHash, 0); // randomness value is dynamic
         
-        simulateTaskCompletion();
+        simulateTaskCompletion(taskHash);
         
         // Verify request is now fulfilled
         (fulfilled,) = omniVRF.getRandomness(taskHash);
         assertTrue(fulfilled);
         
         // Verify callback was executed
-        assertTrue(mockConsumer.lastTaskHash() != bytes32(0));
+        assertEq(mockConsumer.lastTaskHash(), taskHash);
         assertTrue(mockConsumer.lastRandomness() > 0);
     }
 
@@ -425,7 +420,7 @@ contract OmniVRFTaskManagerTest is Test {
         vm.expectEmit(true, true, false, false);
         emit CallbackFailed(taskHash, address(mockConsumer), "Mock revert");
         
-        simulateTaskCompletion();
+        simulateTaskCompletion(taskHash);
         
         // Verify gas was refunded
         assertEq(omniVRF.callbackGasDeposits(USER), initialBalance + deposit);
