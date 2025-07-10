@@ -41,16 +41,16 @@ contract MockTaskMailbox {
  * @notice Mock contract for testing VRF callbacks
  */
 contract MockVRFConsumer is IOmniVRFConsumer {
-    uint256 public lastRequestId;
+    bytes32 public lastTaskHash;
     uint256 public lastRandomness;
     bool public shouldRevert;
     
-    function fulfillRandomness(uint256 requestId, uint256 randomness) external override {
+    function fulfillRandomness(bytes32 taskHash, uint256 randomness) external override {
         if (shouldRevert) {
             revert("Mock revert");
         }
         
-        lastRequestId = requestId;
+        lastTaskHash = taskHash;
         lastRandomness = randomness;
     }
     
@@ -76,19 +76,19 @@ contract OmniVRFTaskManagerTest is Test {
     
     // Events to test
     event RandomnessRequested(
-        uint256 indexed requestId,
+        bytes32 indexed taskHash,
         address indexed requester,
         address callbackContract,
         uint256 seed
     );
     
     event RandomnessFulfilled(
-        uint256 indexed requestId,
+        bytes32 indexed taskHash,
         uint256 randomness
     );
     
     event CallbackFailed(
-        uint256 indexed requestId,
+        bytes32 indexed taskHash,
         address indexed callbackContract,
         string reason
     );
@@ -107,10 +107,10 @@ contract OmniVRFTaskManagerTest is Test {
         vm.startPrank(USER);
         
         // Test request without callback
-        uint256 requestId = omniVRF.requestRandomness(address(0), 0);
+        bytes32 taskHash = omniVRF.requestRandomness(address(0), 0);
         
         // Verify request was created
-        assertEq(requestId, 1);
+        assertTrue(taskHash != bytes32(0));
         
         // Check request details
         (
@@ -121,7 +121,7 @@ contract OmniVRFTaskManagerTest is Test {
             uint256 blockNumber,
             bool fulfilled,
             uint256 result
-        ) = omniVRF.requests(requestId);
+        ) = omniVRF.requests(taskHash);
         
         assertEq(requester, USER);
         assertEq(callbackContract, address(0));
@@ -141,15 +141,15 @@ contract OmniVRFTaskManagerTest is Test {
         
         // Test event emission
         vm.expectEmit(true, true, false, false);
-        emit RandomnessRequested(1, USER, address(mockConsumer), 0); // seed is dynamic
+        emit RandomnessRequested(bytes32(0), USER, address(mockConsumer), 0); // seed is dynamic, taskHash is dynamic
         
-        uint256 requestId = omniVRF.requestRandomness{value: requiredDeposit}(
+        bytes32 taskHash = omniVRF.requestRandomness{value: requiredDeposit}(
             address(mockConsumer),
             CALLBACK_GAS_LIMIT
         );
         
         // Verify request was created
-        assertEq(requestId, 1);
+        assertTrue(taskHash != bytes32(0));
         
         // Check gas deposit
         assertEq(omniVRF.callbackGasDeposits(USER), requiredDeposit);
@@ -160,7 +160,7 @@ contract OmniVRFTaskManagerTest is Test {
             address callbackContract,
             uint256 callbackGasLimit,
             ,,,
-        ) = omniVRF.requests(requestId);
+        ) = omniVRF.requests(taskHash);
         
         assertEq(requester, USER);
         assertEq(callbackContract, address(mockConsumer));
@@ -208,10 +208,10 @@ contract OmniVRFTaskManagerTest is Test {
     function testGetRandomness() public {
         vm.startPrank(USER);
         
-        uint256 requestId = omniVRF.requestRandomness(address(0), 0);
+        bytes32 taskHash = omniVRF.requestRandomness(address(0), 0);
         
         // Check unfulfilled request
-        (bool fulfilled, uint256 randomness) = omniVRF.getRandomness(requestId);
+        (bool fulfilled, uint256 randomness) = omniVRF.getRandomness(taskHash);
         assertFalse(fulfilled);
         assertEq(randomness, 0);
         
@@ -220,7 +220,7 @@ contract OmniVRFTaskManagerTest is Test {
 
     function testGetRandomnessInvalidRequest() public {
         vm.expectRevert(OmniVRFTaskManager.RequestNotFound.selector);
-        omniVRF.getRandomness(999);
+        omniVRF.getRandomness(bytes32(0));
     }
 
     function testWithdrawCallbackGas() public {
@@ -262,21 +262,21 @@ contract OmniVRFTaskManagerTest is Test {
 
     function testTaskDataDecoding() public {
         OmniVRFTaskManager.VRFTaskData memory taskData = OmniVRFTaskManager.VRFTaskData({
-            requestId: 123,
+            taskHash: bytes32(uint256(123)),
             seed: 456789
         });
         
         bytes memory encoded = abi.encode(taskData);
         OmniVRFTaskManager.VRFTaskData memory decoded = omniVRF.decodeTaskData(encoded);
         
-        assertEq(decoded.requestId, 123);
+        assertEq(decoded.taskHash, bytes32(uint256(123)));
         assertEq(decoded.seed, 456789);
     }
 
     function testValidatePreTaskCreation() public {
         // Create valid task data
         OmniVRFTaskManager.VRFTaskData memory taskData = OmniVRFTaskManager.VRFTaskData({
-            requestId: 1,
+            taskHash: bytes32(uint256(1)),
             seed: 12345
         });
         
@@ -326,17 +326,14 @@ contract OmniVRFTaskManagerTest is Test {
         vm.startPrank(USER);
         
         // Make multiple requests
-        uint256 requestId1 = omniVRF.requestRandomness(address(0), 0);
-        uint256 requestId2 = omniVRF.requestRandomness(address(0), 0);
-        uint256 requestId3 = omniVRF.requestRandomness(address(0), 0);
+        bytes32 taskHash1 = omniVRF.requestRandomness(address(0), 0);
+        bytes32 taskHash2 = omniVRF.requestRandomness(address(0), 0);
+        bytes32 taskHash3 = omniVRF.requestRandomness(address(0), 0);
         
-        // Verify request IDs are sequential
-        assertEq(requestId1, 1);
-        assertEq(requestId2, 2);
-        assertEq(requestId3, 3);
-        
-        // Verify request counter
-        assertEq(omniVRF.requestCounter(), 3);
+        // Verify all task hashes are different (unique)
+        assertTrue(taskHash1 != taskHash2);
+        assertTrue(taskHash2 != taskHash3);
+        assertTrue(taskHash1 != taskHash3);
         
         vm.stopPrank();
     }
@@ -344,16 +341,16 @@ contract OmniVRFTaskManagerTest is Test {
     function testSeedUniqueness() public {
         vm.startPrank(USER);
         
-        uint256 requestId1 = omniVRF.requestRandomness(address(0), 0);
+        bytes32 taskHash1 = omniVRF.requestRandomness(address(0), 0);
         
         // Move to next block to ensure different prevrandao
         vm.roll(block.number + 1);
         
-        uint256 requestId2 = omniVRF.requestRandomness(address(0), 0);
+        bytes32 taskHash2 = omniVRF.requestRandomness(address(0), 0);
         
         // Get seeds from both requests
-        (, , , uint256 seed1, , ,) = omniVRF.requests(requestId1);
-        (, , , uint256 seed2, , ,) = omniVRF.requests(requestId2);
+        (, , , uint256 seed1, , ,) = omniVRF.requests(taskHash1);
+        (, , , uint256 seed2, , ,) = omniVRF.requests(taskHash2);
         
         // Seeds should be different
         assertTrue(seed1 != seed2);
@@ -381,7 +378,7 @@ contract OmniVRFTaskManagerTest is Test {
         uint256 deposit = CALLBACK_GAS_LIMIT * CALLBACK_GAS_PRICE;
         
         // Request with callback
-        uint256 requestId = omniVRF.requestRandomness{value: deposit}(
+        bytes32 taskHash = omniVRF.requestRandomness{value: deposit}(
             address(mockConsumer),
             CALLBACK_GAS_LIMIT
         );
@@ -389,21 +386,21 @@ contract OmniVRFTaskManagerTest is Test {
         vm.stopPrank();
         
         // Verify request is not fulfilled
-        (bool fulfilled,) = omniVRF.getRandomness(requestId);
+        (bool fulfilled,) = omniVRF.getRandomness(taskHash);
         assertFalse(fulfilled);
         
         // Simulate task completion
         vm.expectEmit(true, false, false, false);
-        emit RandomnessFulfilled(requestId, 0); // randomness value is dynamic
+        emit RandomnessFulfilled(taskHash, 0); // randomness value is dynamic
         
         simulateTaskCompletion();
         
         // Verify request is now fulfilled
-        (fulfilled,) = omniVRF.getRandomness(requestId);
+        (fulfilled,) = omniVRF.getRandomness(taskHash);
         assertTrue(fulfilled);
         
         // Verify callback was executed
-        assertTrue(mockConsumer.lastRequestId() > 0);
+        assertTrue(mockConsumer.lastTaskHash() != bytes32(0));
         assertTrue(mockConsumer.lastRandomness() > 0);
     }
 
@@ -417,7 +414,7 @@ contract OmniVRFTaskManagerTest is Test {
         mockConsumer.setShouldRevert(true);
         
         // Request with callback
-        uint256 requestId = omniVRF.requestRandomness{value: deposit}(
+        bytes32 taskHash = omniVRF.requestRandomness{value: deposit}(
             address(mockConsumer),
             CALLBACK_GAS_LIMIT
         );
@@ -426,7 +423,7 @@ contract OmniVRFTaskManagerTest is Test {
         
         // Simulate task completion - should handle callback failure
         vm.expectEmit(true, true, false, false);
-        emit CallbackFailed(requestId, address(mockConsumer), "Mock revert");
+        emit CallbackFailed(taskHash, address(mockConsumer), "Mock revert");
         
         simulateTaskCompletion();
         
@@ -434,7 +431,7 @@ contract OmniVRFTaskManagerTest is Test {
         assertEq(omniVRF.callbackGasDeposits(USER), initialBalance + deposit);
         
         // Verify request is still fulfilled despite callback failure
-        (bool fulfilled,) = omniVRF.getRandomness(requestId);
+        (bool fulfilled,) = omniVRF.getRandomness(taskHash);
         assertTrue(fulfilled);
     }
 }

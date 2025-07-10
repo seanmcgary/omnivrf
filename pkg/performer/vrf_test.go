@@ -4,11 +4,10 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	performerV1 "github.com/Layr-Labs/protocol-apis/gen/protos/eigenlayer/hourglass/v1/performer"
 	"go.uber.org/zap/zaptest"
@@ -47,47 +46,41 @@ func TestVRFPerformer_ValidateTask(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		taskData    TaskData
+		taskData    VRFTaskData
 		expectError bool
 	}{
 		{
 			name: "valid task",
-			taskData: TaskData{
-				RequestID: big.NewInt(1),
-				Seed:      "deadbeef",
+			taskData: VRFTaskData{
+				TaskHash: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+				Seed:     big.NewInt(1),
 			},
 			expectError: false,
 		},
 		{
-			name: "missing request ID",
-			taskData: TaskData{
-				Seed: "deadbeef",
-			},
-			expectError: true,
-		},
-		{
 			name: "missing seed",
-			taskData: TaskData{
-				RequestID: big.NewInt(1),
+			taskData: VRFTaskData{
+				TaskHash: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+				Seed:     big.NewInt(0), // Use zero instead of nil for ABI encoding
 			},
 			expectError: true,
 		},
 		{
-			name: "invalid seed format",
-			taskData: TaskData{
-				RequestID: big.NewInt(1),
-				Seed:      "not_hex",
+			name: "large seed (should pass - uint256 allows large values)",
+			taskData: VRFTaskData{
+				TaskHash: common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"),
+				Seed:     new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1)), // 2^256 - 1 (max uint256)
 			},
-			expectError: true,
+			expectError: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Marshal task data
-			data, err := json.Marshal(tt.taskData)
+			// Encode task data using ABI
+			data, err := performer.EncodeTaskData(tt.taskData)
 			if err != nil {
-				t.Fatalf("failed to marshal task data: %v", err)
+				t.Fatalf("failed to encode task data: %v", err)
 			}
 
 			// Create task request
@@ -114,14 +107,14 @@ func TestVRFPerformer_HandleTask(t *testing.T) {
 	performer := NewVRFPerformer(km, logger)
 
 	// Create test task data
-	taskData := TaskData{
-		RequestID: big.NewInt(42),
-		Seed:      hex.EncodeToString([]byte("test seed")),
+	taskData := VRFTaskData{
+		TaskHash: common.HexToHash("0x456789abcdef456789abcdef456789abcdef456789abcdef456789abcdef456789"),
+		Seed:     big.NewInt(42),
 	}
 
-	data, err := json.Marshal(taskData)
+	data, err := performer.EncodeTaskData(taskData)
 	if err != nil {
-		t.Fatalf("failed to marshal task data: %v", err)
+		t.Fatalf("failed to encode task data: %v", err)
 	}
 
 	// Create task request
@@ -142,33 +135,22 @@ func TestVRFPerformer_HandleTask(t *testing.T) {
 	}
 
 	// Parse result
-	var result TaskResult
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		t.Fatalf("failed to unmarshal result: %v", err)
+	result, err := performer.DecodeTaskResult(resp.Result)
+	if err != nil {
+		t.Fatalf("failed to decode result: %v", err)
 	}
 
 	// Verify result structure
-	if result.RequestID.Cmp(taskData.RequestID) != 0 {
-		t.Errorf("expected request ID %s, got %s", taskData.RequestID.String(), result.RequestID.String())
+	if result.TaskHash != common.BytesToHash(req.TaskId) {
+		t.Errorf("expected task hash %s, got %s", common.BytesToHash(req.TaskId).Hex(), common.Hash(result.TaskHash).Hex())
 	}
 
-	if result.VRFProof == "" {
+	if len(result.VRFProof) == 0 {
 		t.Error("expected non-empty VRF proof")
 	}
 
-	if result.VRFOutput == "" {
-		t.Error("expected non-empty VRF output")
-	}
-
-	// Verify VRF proof can be decoded
-	proofBytes, err := hex.DecodeString(result.VRFProof)
-	if err != nil {
-		t.Errorf("failed to decode VRF proof: %v", err)
-	}
-
-	_, err = hex.DecodeString(result.VRFOutput)
-	if err != nil {
-		t.Errorf("failed to decode VRF output: %v", err)
+	if result.VRFOutput == nil || result.VRFOutput.Sign() == 0 {
+		t.Error("expected non-zero VRF output")
 	}
 
 	// Verify VRF proof is correct
@@ -177,17 +159,15 @@ func TestVRFPerformer_HandleTask(t *testing.T) {
 		t.Fatalf("failed to get public key: %v", err)
 	}
 
-	seedBytes, err := hex.DecodeString(taskData.Seed)
-	if err != nil {
-		t.Fatalf("failed to decode seed: %v", err)
-	}
+	seedBytes := taskData.Seed.Bytes()
 
-	verifiedOutput, err := performer.VerifyVRFProof(publicKey, seedBytes, proofBytes)
+	verifiedOutput, err := performer.VerifyVRFProof(publicKey, seedBytes, result.VRFProof)
 	if err != nil {
 		t.Fatalf("failed to verify VRF proof: %v", err)
 	}
 
-	if hex.EncodeToString(verifiedOutput) != result.VRFOutput {
+	expectedOutput := new(big.Int).SetBytes(verifiedOutput)
+	if result.VRFOutput.Cmp(expectedOutput) != 0 {
 		t.Error("VRF proof verification failed - outputs don't match")
 	}
 }
@@ -198,14 +178,14 @@ func TestVRFPerformer_Deterministic(t *testing.T) {
 	performer := NewVRFPerformer(km, logger)
 
 	// Create test task data
-	taskData := TaskData{
-		RequestID: big.NewInt(100),
-		Seed:      hex.EncodeToString([]byte("deterministic test")),
+	taskData := VRFTaskData{
+		TaskHash: common.HexToHash("0x789abcdef789abcdef789abcdef789abcdef789abcdef789abcdef789abcdef789a"),
+		Seed:     big.NewInt(100),
 	}
 
-	data, err := json.Marshal(taskData)
+	data, err := performer.EncodeTaskData(taskData)
 	if err != nil {
-		t.Fatalf("failed to marshal task data: %v", err)
+		t.Fatalf("failed to encode task data: %v", err)
 	}
 
 	// Create task request
@@ -215,24 +195,25 @@ func TestVRFPerformer_Deterministic(t *testing.T) {
 	}
 
 	// Handle task multiple times
-	results := make([]TaskResult, 3)
+	results := make([]*VRFTaskResult, 3)
 	for i := 0; i < 3; i++ {
 		resp, err := performer.HandleTask(req)
 		if err != nil {
 			t.Fatalf("failed to handle task iteration %d: %v", i, err)
 		}
 
-		if err := json.Unmarshal(resp.Result, &results[i]); err != nil {
-			t.Fatalf("failed to unmarshal result iteration %d: %v", i, err)
+		results[i], err = performer.DecodeTaskResult(resp.Result)
+		if err != nil {
+			t.Fatalf("failed to decode result iteration %d: %v", i, err)
 		}
 	}
 
 	// Verify all results are identical (VRF is deterministic)
 	for i := 1; i < len(results); i++ {
-		if results[0].VRFProof != results[i].VRFProof {
+		if string(results[0].VRFProof) != string(results[i].VRFProof) {
 			t.Errorf("VRF proofs should be deterministic, but iteration %d differs", i)
 		}
-		if results[0].VRFOutput != results[i].VRFOutput {
+		if results[0].VRFOutput.Cmp(results[i].VRFOutput) != 0 {
 			t.Errorf("VRF outputs should be deterministic, but iteration %d differs", i)
 		}
 	}
@@ -244,18 +225,18 @@ func TestVRFPerformer_DifferentSeeds(t *testing.T) {
 	performer := NewVRFPerformer(km, logger)
 
 	// Test different seeds produce different outputs
-	seeds := []string{"seed1", "seed2", "seed3"}
-	outputs := make([]string, len(seeds))
+	seeds := []*big.Int{big.NewInt(1), big.NewInt(2), big.NewInt(3)}
+	outputs := make([]*big.Int, len(seeds))
 
 	for i, seed := range seeds {
-		taskData := TaskData{
-			RequestID: big.NewInt(int64(i + 1)),
-			Seed:      hex.EncodeToString([]byte(seed)),
+		taskData := VRFTaskData{
+			TaskHash: common.HexToHash("0xabcdef123456abcdef123456abcdef123456abcdef123456abcdef123456abcdef"),
+			Seed:     seed,
 		}
 
-		data, err := json.Marshal(taskData)
+		data, err := performer.EncodeTaskData(taskData)
 		if err != nil {
-			t.Fatalf("failed to marshal task data for seed %s: %v", seed, err)
+			t.Fatalf("failed to encode task data for seed %s: %v", seed.String(), err)
 		}
 
 		req := &performerV1.TaskRequest{
@@ -265,12 +246,12 @@ func TestVRFPerformer_DifferentSeeds(t *testing.T) {
 
 		resp, err := performer.HandleTask(req)
 		if err != nil {
-			t.Fatalf("failed to handle task for seed %s: %v", seed, err)
+			t.Fatalf("failed to handle task for seed %s: %v", seed.String(), err)
 		}
 
-		var result TaskResult
-		if err := json.Unmarshal(resp.Result, &result); err != nil {
-			t.Fatalf("failed to unmarshal result for seed %s: %v", seed, err)
+		result, err := performer.DecodeTaskResult(resp.Result)
+		if err != nil {
+			t.Fatalf("failed to decode result for seed %s: %v", seed.String(), err)
 		}
 
 		outputs[i] = result.VRFOutput
@@ -279,7 +260,7 @@ func TestVRFPerformer_DifferentSeeds(t *testing.T) {
 	// Verify all outputs are different
 	for i := 0; i < len(outputs); i++ {
 		for j := i + 1; j < len(outputs); j++ {
-			if outputs[i] == outputs[j] {
+			if outputs[i].Cmp(outputs[j]) == 0 {
 				t.Errorf("different seeds should produce different outputs, but outputs %d and %d are identical", i, j)
 			}
 		}

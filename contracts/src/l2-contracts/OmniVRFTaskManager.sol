@@ -33,7 +33,7 @@ contract OmniVRFTaskManager is IAVSTaskHook {
      * @notice Structure for task data sent to operators
      */
     struct VRFTaskData {
-        uint256 requestId;          // Unique request identifier
+        bytes32 taskHash;           // Task hash from TaskMailbox (used as unique identifier)
         uint256 seed;               // Seed for VRF computation
     }
 
@@ -42,14 +42,11 @@ contract OmniVRFTaskManager is IAVSTaskHook {
     /// @notice Reference to the TaskMailbox contract for creating tasks
     ITaskMailbox public immutable taskMailbox;
 
-    /// @notice Mapping from request ID to randomness request details
-    mapping(uint256 => RandomnessRequest) public requests;
+    /// @notice Mapping from task hash to randomness request details
+    mapping(bytes32 => RandomnessRequest) public requests;
     
     /// @notice Mapping from requester address to their gas deposits for callbacks
     mapping(address => uint256) public callbackGasDeposits;
-    
-    /// @notice Counter for generating unique request IDs
-    uint256 public requestCounter;
     
     /// @notice Gas price used for callback cost calculations (10 gwei)
     uint256 public constant CALLBACK_GAS_PRICE = 10 gwei;
@@ -64,13 +61,13 @@ contract OmniVRFTaskManager is IAVSTaskHook {
 
     /**
      * @notice Emitted when randomness is requested
-     * @param requestId Unique identifier for the request
+     * @param taskHash Unique task hash identifier from TaskMailbox
      * @param requester Address that requested randomness
      * @param callbackContract Optional callback contract address
      * @param seed Deterministic seed used for VRF computation
      */
     event RandomnessRequested(
-        uint256 indexed requestId,
+        bytes32 indexed taskHash,
         address indexed requester,
         address callbackContract,
         uint256 seed
@@ -78,22 +75,22 @@ contract OmniVRFTaskManager is IAVSTaskHook {
 
     /**
      * @notice Emitted when randomness is fulfilled
-     * @param requestId Unique identifier for the request
+     * @param taskHash Unique task hash identifier
      * @param randomness The generated random number
      */
     event RandomnessFulfilled(
-        uint256 indexed requestId,
+        bytes32 indexed taskHash,
         uint256 randomness
     );
 
     /**
      * @notice Emitted when a callback execution fails
-     * @param requestId Unique identifier for the request
+     * @param taskHash Unique task hash identifier
      * @param callbackContract Address of the contract that failed
      * @param reason Failure reason
      */
     event CallbackFailed(
-        uint256 indexed requestId,
+        bytes32 indexed taskHash,
         address indexed callbackContract,
         string reason
     );
@@ -123,13 +120,12 @@ contract OmniVRFTaskManager is IAVSTaskHook {
      * @notice Request verifiable randomness
      * @param callbackContract Optional contract to callback with result (address(0) for no callback)
      * @param callbackGasLimit Gas limit for callback execution (ignored if callbackContract is address(0))
-     * @return requestId Unique request identifier
+     * @return taskHash Unique task hash identifier from TaskMailbox
      */
     function requestRandomness(
         address callbackContract,
         uint256 callbackGasLimit
-    ) external payable returns (uint256 requestId) {
-        requestId = ++requestCounter;
+    ) external payable returns (bytes32 taskHash) {
         
         // Validate callback gas limit if callback is requested
         if (callbackContract != address(0)) {
@@ -150,34 +146,22 @@ contract OmniVRFTaskManager is IAVSTaskHook {
         // Generate deterministic seed
         uint256 seed = uint256(keccak256(abi.encodePacked(
             msg.sender,
-            requestId,
             block.prevrandao,
             block.timestamp,
             block.number
         )));
         
-        // Store request
-        requests[requestId] = RandomnessRequest({
-            requester: msg.sender,
-            callbackContract: callbackContract,
-            callbackGasLimit: callbackGasLimit,
-            seed: seed,
-            blockNumber: block.number,
-            fulfilled: false,
-            result: 0
-        });
-        
-        // Create task data for operators
-        VRFTaskData memory taskData = VRFTaskData({
-            requestId: requestId,
-            seed: seed
-        });
-        
-        // Create task in TaskMailbox
+        // Create task in TaskMailbox first to get taskHash
         // For MVP, use a simple operator set with ID 1
         OperatorSet memory operatorSet = OperatorSet({
             avs: address(this),
             id: uint32(1)
+        });
+        
+        // Create task data for operators (taskHash will be available to performer through task context)
+        VRFTaskData memory taskData = VRFTaskData({
+            taskHash: bytes32(0), // Placeholder - performers will get actual taskHash from TaskMailbox
+            seed: seed
         });
         
         ITaskMailboxTypes.TaskParams memory taskParams = ITaskMailboxTypes.TaskParams({
@@ -187,19 +171,30 @@ contract OmniVRFTaskManager is IAVSTaskHook {
             payload: abi.encode(taskData)
         });
         
-        taskMailbox.createTask(taskParams);
+        taskHash = taskMailbox.createTask(taskParams);
         
-        emit RandomnessRequested(requestId, msg.sender, callbackContract, seed);
+        // Store request with the actual taskHash
+        requests[taskHash] = RandomnessRequest({
+            requester: msg.sender,
+            callbackContract: callbackContract,
+            callbackGasLimit: callbackGasLimit,
+            seed: seed,
+            blockNumber: block.number,
+            fulfilled: false,
+            result: 0
+        });
+        
+        emit RandomnessRequested(taskHash, msg.sender, callbackContract, seed);
     }
 
     /**
-     * @notice Get randomness result for a given request ID
-     * @param requestId The request identifier
+     * @notice Get randomness result for a given task hash
+     * @param taskHash The task hash identifier
      * @return fulfilled Whether the request has been fulfilled
      * @return randomness The generated random number (0 if not fulfilled)
      */
-    function getRandomness(uint256 requestId) external view returns (bool fulfilled, uint256 randomness) {
-        RandomnessRequest storage request = requests[requestId];
+    function getRandomness(bytes32 taskHash) external view returns (bool fulfilled, uint256 randomness) {
+        RandomnessRequest storage request = requests[taskHash];
         if (request.requester == address(0)) {
             revert RequestNotFound();
         }
@@ -281,15 +276,8 @@ contract OmniVRFTaskManager is IAVSTaskHook {
         // TODO: Integrate with actual Hourglass result retrieval
         uint256 mockRandomness = uint256(keccak256(abi.encodePacked(taskHash, block.timestamp)));
         
-        // Find the corresponding request
-        // This is inefficient but acceptable for MVP
-        for (uint256 i = 1; i <= requestCounter; i++) {
-            RandomnessRequest storage request = requests[i];
-            if (!request.fulfilled && request.blockNumber <= block.number) {
-                _fulfillRequest(i, mockRandomness);
-                break;
-            }
-        }
+        // Fulfill the request using the taskHash
+        _fulfillRequest(taskHash, mockRandomness);
     }
 
     /**
@@ -310,11 +298,11 @@ contract OmniVRFTaskManager is IAVSTaskHook {
 
     /**
      * @notice Fulfill a randomness request
-     * @param requestId The request to fulfill
+     * @param taskHash The task hash to fulfill
      * @param randomness The generated random number
      */
-    function _fulfillRequest(uint256 requestId, uint256 randomness) internal {
-        RandomnessRequest storage request = requests[requestId];
+    function _fulfillRequest(bytes32 taskHash, uint256 randomness) internal {
+        RandomnessRequest storage request = requests[taskHash];
         
         if (request.requester == address(0)) {
             revert RequestNotFound();
@@ -328,20 +316,20 @@ contract OmniVRFTaskManager is IAVSTaskHook {
         request.result = randomness;
         request.fulfilled = true;
         
-        emit RandomnessFulfilled(requestId, randomness);
+        emit RandomnessFulfilled(taskHash, randomness);
         
         // Execute callback if requested
         if (request.callbackContract != address(0)) {
-            _executeCallback(requestId);
+            _executeCallback(taskHash);
         }
     }
 
     /**
      * @notice Execute callback to consumer contract
-     * @param requestId The request ID to callback with
+     * @param taskHash The task hash to callback with
      */
-    function _executeCallback(uint256 requestId) internal {
-        RandomnessRequest memory request = requests[requestId];
+    function _executeCallback(bytes32 taskHash) internal {
+        RandomnessRequest memory request = requests[taskHash];
         
         // Calculate and deduct gas costs
         uint256 gasCost = request.callbackGasLimit * CALLBACK_GAS_PRICE;
@@ -350,16 +338,16 @@ contract OmniVRFTaskManager is IAVSTaskHook {
         // Execute callback with gas limit protection
         try IOmniVRFConsumer(request.callbackContract).fulfillRandomness{
             gas: request.callbackGasLimit
-        }(requestId, request.result) {
+        }(taskHash, request.result) {
             // Callback successful
         } catch Error(string memory reason) {
             // Refund gas on failure
             callbackGasDeposits[request.requester] += gasCost;
-            emit CallbackFailed(requestId, request.callbackContract, reason);
+            emit CallbackFailed(taskHash, request.callbackContract, reason);
         } catch {
             // Refund gas on failure
             callbackGasDeposits[request.requester] += gasCost;
-            emit CallbackFailed(requestId, request.callbackContract, "Unknown error");
+            emit CallbackFailed(taskHash, request.callbackContract, "Unknown error");
         }
     }
 

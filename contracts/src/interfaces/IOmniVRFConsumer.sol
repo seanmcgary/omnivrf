@@ -9,10 +9,10 @@ pragma solidity ^0.8.27;
 interface IOmniVRFConsumer {
     /**
      * @notice Called by OmniVRF when randomness is fulfilled
-     * @param requestId The unique identifier for the randomness request
+     * @param taskHash The unique task hash identifier from TaskMailbox
      * @param randomness The generated random number
      * @dev This function must be implemented by consuming contracts
      *      Gas limit for this function is specified during the request
      */
-    function fulfillRandomness(uint256 requestId, uint256 randomness) external;
+    function fulfillRandomness(bytes32 taskHash, uint256 randomness) external;
 }

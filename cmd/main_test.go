@@ -4,11 +4,10 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
 	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	performerV1 "github.com/Layr-Labs/protocol-apis/gen/protos/eigenlayer/hourglass/v1/performer"
 	"go.uber.org/zap/zaptest"
@@ -46,19 +45,26 @@ func Test_VRFTaskRequestPayload(t *testing.T) {
 	km := NewMockKeyManager()
 	vrfPerformer := performer.NewVRFPerformer(km, logger)
 
-	// Create valid VRF task data
-	taskData := performer.TaskData{
-		RequestID: big.NewInt(42),
-		Seed:      hex.EncodeToString([]byte("test seed for integration")),
+	// Create valid VRF task data using ABI encoding
+	taskHash := common.HexToHash("0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef")
+	seed := new(big.Int)
+	seed.SetString("12345678901234567890", 10)
+	
+	taskData := performer.VRFTaskData{
+		TaskHash: taskHash,
+		Seed:     seed,
 	}
 
-	payload, err := json.Marshal(taskData)
+	// Create a temporary performer instance to access encoding methods
+	tempPerformer := &performer.VRFPerformer{}
+	payload, err := tempPerformer.EncodeTaskData(taskData)
 	if err != nil {
-		t.Fatalf("Failed to marshal task data: %v", err)
+		t.Fatalf("Failed to encode task data: %v", err)
 	}
 
+	// Use the task hash as the TaskId (as TaskMailbox would provide)
 	taskRequest := &performerV1.TaskRequest{
-		TaskId:   []byte("integration-test-task-id"),
+		TaskId:   taskHash.Bytes(),
 		Payload:  payload,
 		Metadata: []byte("test-metadata"),
 	}
@@ -83,24 +89,24 @@ func Test_VRFTaskRequestPayload(t *testing.T) {
 		t.Errorf("Expected task ID %s, got %s", string(taskRequest.TaskId), string(resp.TaskId))
 	}
 
-	// Verify result structure
-	var result performer.TaskResult
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		t.Fatalf("Failed to unmarshal result: %v", err)
+	// Verify result structure using ABI decoding
+	result, err := tempPerformer.DecodeTaskResult(resp.Result)
+	if err != nil {
+		t.Fatalf("Failed to decode result: %v", err)
 	}
 
-	if result.RequestID.Cmp(taskData.RequestID) != 0 {
-		t.Errorf("Expected request ID %s, got %s", taskData.RequestID.String(), result.RequestID.String())
+	if result.TaskHash != taskHash {
+		t.Errorf("Expected task hash %s, got %s", taskHash.Hex(), common.BytesToHash(result.TaskHash[:]).Hex())
 	}
 
-	if result.VRFProof == "" {
+	if len(result.VRFProof) == 0 {
 		t.Error("Expected non-empty VRF proof")
 	}
 
-	if result.VRFOutput == "" {
-		t.Error("Expected non-empty VRF output")
+	if result.VRFOutput == nil || result.VRFOutput.Sign() <= 0 {
+		t.Error("Expected non-zero VRF output")
 	}
 
-	t.Logf("VRF task completed successfully - Request ID: %s, VRF Output: %s", 
-		result.RequestID.String(), result.VRFOutput)
+	t.Logf("VRF task completed successfully - Task Hash: %s, VRF Output: %s", 
+		common.BytesToHash(result.TaskHash[:]).Hex(), result.VRFOutput.String())
 }
