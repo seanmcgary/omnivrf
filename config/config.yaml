@@ -1,0 +1,10 @@
+version: 0.0.2
+config:
+    project:
+        name: omnivrf
+        version: 0.1.0
+        context: devnet
+        project_uuid: 8034a376-6170-4471-9660-2a0c59a8f49e
+        telemetry_enabled: true
+        templateBaseUrl: https://github.com/Layr-Labs/hourglass-avs-template
+        templateVersion: v0.0.14
