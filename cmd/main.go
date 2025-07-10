@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"os"
 	"time"
 
 	"github.com/Layr-Labs/hourglass-monorepo/ponos/pkg/performer/server"
-	performerV1 "github.com/Layr-Labs/protocol-apis/gen/protos/eigenlayer/hourglass/v1/performer"
 	"go.uber.org/zap"
+
+	"github.com/Layr-Labs/hourglass-avs-template/pkg/keymanager"
+	"github.com/Layr-Labs/hourglass-avs-template/pkg/performer"
 )
 
 // This offchain binary is run by Operators running the Hourglass Executor. It contains
@@ -17,63 +19,44 @@ import (
 // return the result to the Executor where the result is signed and return to the
 // Aggregator to place in the outbox once the signing threshold is met.
 
-type TaskWorker struct {
-	logger *zap.Logger
-}
-
-func NewTaskWorker(logger *zap.Logger) *TaskWorker {
-	return &TaskWorker{
-		logger: logger,
-	}
-}
-
-func (tw *TaskWorker) ValidateTask(t *performerV1.TaskRequest) error {
-	tw.logger.Sugar().Infow("Validating task",
-		zap.Any("task", t),
-	)
-
-	// ------------------------------------------------------------------------
-	// Implement your AVS task validation logic here
-	// ------------------------------------------------------------------------
-	// This is where the Perfomer will validate the task request data.
-	// E.g. the Perfomer may validate that the request params are well formed and adhere to a schema.
-
-	return nil
-}
-
-func (tw *TaskWorker) HandleTask(t *performerV1.TaskRequest) (*performerV1.TaskResponse, error) {
-	tw.logger.Sugar().Infow("Handling task",
-		zap.Any("task", t),
-	)
-
-	// ------------------------------------------------------------------------
-	// Implement your AVS logic here
-	// ------------------------------------------------------------------------
-	// This is where the Performer will do the work and provide compute.
-	// E.g. the Perfomer could call an external API, a local service or a script.
-
-	var resultBytes []byte
-	return &performerV1.TaskResponse{
-		TaskId: t.TaskId,
-		Result: resultBytes,
-	}, nil
-}
-
 func main() {
 	ctx := context.Background()
 	l, _ := zap.NewProduction()
 
-	w := NewTaskWorker(l)
+	l.Info("Starting OmniVRF Performer")
 
-	pp, err := server.NewPonosPerformerWithRpcServer(&server.PonosPerformerConfig{
-		Port:    8080,
-		Timeout: 5 * time.Second,
-	}, w, l)
-	if err != nil {
-		panic(fmt.Errorf("failed to create performer: %w", err))
+	// Initialize key manager based on configuration
+	var km performer.KeyManager
+	var err error
+
+	keyManagerType := os.Getenv("KEY_MANAGER_TYPE")
+	switch keyManagerType {
+	case "aws":
+		// TODO: Implement AWS key manager in Phase 2
+		l.Fatal("AWS key manager not yet implemented")
+	default:
+		l.Info("Using environment variable key manager")
+		km, err = keymanager.NewEnvKeyManager()
+		if err != nil {
+			l.Fatal("Failed to initialize environment key manager", zap.Error(err))
+		}
 	}
 
+	// Create VRF performer
+	vrfPerformer := performer.NewVRFPerformer(km, l)
+
+	// Initialize Hourglass server with VRF performer
+	pp, err := server.NewPonosPerformerWithRpcServer(&server.PonosPerformerConfig{
+		Port:    8080,
+		Timeout: 30 * time.Second, // Increased timeout for VRF computation
+	}, vrfPerformer, l)
+	if err != nil {
+		l.Fatal("Failed to create performer server", zap.Error(err))
+	}
+
+	l.Info("Starting VRF performer server on port 8080")
+
 	if err := pp.Start(ctx); err != nil {
-		panic(err)
+		l.Fatal("Failed to start performer server", zap.Error(err))
 	}
 }
