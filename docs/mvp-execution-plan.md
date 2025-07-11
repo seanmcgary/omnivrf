@@ -168,6 +168,13 @@ This execution plan breaks down the implementation of OmniVRF (Verifiable Random
 - [x] Test callback gas limits and failure scenarios
 - [x] Document consumer integration patterns
 
+#### 4.4 Client Tools
+- [x] Create Go CLI client at `cmd/client-cli` using urfave/cli
+- [x] Implement commands for request, get, withdraw, and info
+- [x] Add proper Ethereum key handling and transaction management
+- [x] Create comprehensive documentation for client usage
+- [x] Add WebSocket support for waiting on randomness results with `--wait` flag
+
 #### 4.4 Performance & Security Validation
 - [x] Test with multiple concurrent requests
 - [x] Verify VRF proof uniqueness and correctness  

@@ -9,7 +9,8 @@ This is an EigenLayer AVS (Autonomous Verifiable Service) project named "omnivrf
 ## Common Development Commands
 
 ### Build Commands
-- `make build` - Builds the Go performer binary to `./bin/performer`
+- `make build` - Builds all Go binaries (performer and client)
+- `make build/client` - Builds only the OmniVRF client CLI to `./bin/omnivrf-client`
 - `make deps` - Updates Go dependencies
 - `make build/container` - Builds Docker container using `.hourglass/scripts/buildContainer.sh`
 - `devkit avs build` - Builds both Go code and smart contracts
@@ -58,6 +59,31 @@ Available flags:
 - `--aws-secret-name` (env: `AWS_SECRET_NAME`): AWS secret name for aws key manager
 - `--aws-region` (env: `AWS_REGION`): AWS region (default: us-east-1)
 - `--log-level` (env: `OMNIVRF_LOG_LEVEL`): Log level - debug, info, warn, error (default: info)
+
+### Using the OmniVRF Client
+
+The project includes a CLI client for interacting with the deployed OmniVRF contract:
+
+```bash
+# Set required environment variables
+export OMNIVRF_RPC_URL="http://localhost:8545"
+export OMNIVRF_PRIVATE_KEY="0x..."
+export OMNIVRF_CONTRACT_ADDRESS="0x..."
+
+# Request randomness
+./bin/omnivrf-client request --callback-address 0x... --callback-gas 200000
+
+# Check randomness result
+./bin/omnivrf-client get --task-hash 0x...
+
+# Get contract info
+./bin/omnivrf-client info
+
+# Withdraw callback gas deposits
+./bin/omnivrf-client withdraw --amount 1000000000000000000
+```
+
+See `cmd/client-cli/README.md` for detailed usage instructions.
 
 ### Linting and Type Checking
 Note: No explicit linting commands found in the Makefile. The project likely uses:

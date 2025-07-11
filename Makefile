@@ -14,6 +14,12 @@ build: deps
 	@mkdir -p $(OUT) || true
 	@echo "Building binaries..."
 	go build -o $(OUT)/performer ./cmd/main.go
+	go build -o $(OUT)/omnivrf-client ./cmd/client-cli/main.go
+
+build/client: deps
+	@mkdir -p $(OUT) || true
+	@echo "Building client..."
+	go build -o $(OUT)/omnivrf-client ./cmd/client-cli/main.go
 
 deps:
 	GOPRIVATE=github.com/Layr-Labs/* go mod tidy
